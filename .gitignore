@@ -24,3 +24,5 @@ modules.order
 tags
 
 **/obj_dir
+
+**/corundum_simbricks_adapter
