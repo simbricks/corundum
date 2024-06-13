@@ -42,6 +42,19 @@ extern "C" {
 #define CORUNDUM_VERILATOR_DEBUG 1
 
 /* **************************************************************************
+ * signal handling
+ * ************************************************************************** */
+
+static uint64_t main_time = 0;
+static volatile int exiting = 0;
+static void sigint_handler(int dummy) {
+  exiting = 1;
+}
+static void sigusr1_handler(int dummy) {
+  sim_log::LogError("main_time = %lu\n", main_time);
+}
+
+/* **************************************************************************
  * helpers
  * ************************************************************************** */
 
@@ -70,7 +83,8 @@ class CorundumAXISubordinateRead
           4, 1, 16,
           /*num concurrently pending requests*/ 16> {
  public:
-  explicit CorundumAXISubordinateRead(Vmqnic_core_axi &top_verilator_interface)
+  explicit CorundumAXISubordinateRead(struct SimbricksNicIf &nicif,
+                                      Vmqnic_core_axi &top_verilator_interface)
       : AXISubordinateRead(
             reinterpret_cast<uint8_t *>(&top_verilator_interface.m_axi_araddr),
             &top_verilator_interface.m_axi_arid,
@@ -83,12 +97,43 @@ class CorundumAXISubordinateRead
             &top_verilator_interface.m_axi_rid,
             top_verilator_interface.m_axi_rready,
             top_verilator_interface.m_axi_rvalid,
-            top_verilator_interface.m_axi_rlast) {
+            top_verilator_interface.m_axi_rlast),
+        nicif_(nicif) {
   }
 
  private:
+  struct SimbricksNicIf &nicif_;
+
   void do_read(const simbricks::AXIOperation &axi_op) final {
-    // TODO
+#if CORUNDUM_VERILATOR_DEBUG
+    sim_log::LogInfo(
+        "JpegDecoderMemReader::doRead() ts=%lu id=%lu addr=%lu len=%lu\n",
+        main_time, axi_op.id, axi_op.addr, axi_op.len);
+#endif
+
+    volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(nicif_, main_time);
+    if (not msg) {
+      sim_log::LogError(
+          "JpegDecAXISubordinateRead::doRead() dma read alloc failed\n");
+      std::terminate();
+    }
+
+    unsigned int max_size = SimbricksPcieIfH2DOutMsgLen(&nicif_.pcie) -
+                            sizeof(SimbricksProtoPcieH2DReadcomp);
+    if (axi_op.len > max_size) {
+      sim_log::LogError(
+          "error: read data of length=%lu doesn't fit into a SimBricks "
+          "message\n",
+          axi_op.len);
+      std::terminate();
+    }
+
+    volatile struct SimbricksProtoPcieD2HRead *read = &msg->read;
+    read->req_id = axi_op.id;
+    read->offset = axi_op.addr;
+    read->len = axi_op.len;
+    SimbricksPcieIfD2HOutSend(&nicif_.pcie, msg,
+                              SIMBRICKS_PROTO_PCIE_D2H_MSG_READ);
   }
 };
 
@@ -98,7 +143,8 @@ class CorundumAXISubordinateWrite
           4, 1, 16,
           /*num concurrently pending requests*/ 16> {
  public:
-  explicit CorundumAXISubordinateWrite(Vmqnic_core_axi &top_verilator_interface)
+  explicit CorundumAXISubordinateWrite(struct SimbricksNicIf &nicif,
+                                       Vmqnic_core_axi &top_verilator_interface)
       : AXISubordinateWrite(
             reinterpret_cast<uint8_t *>(&top_verilator_interface.m_axi_awaddr),
             &top_verilator_interface.m_axi_awid,
@@ -115,19 +161,53 @@ class CorundumAXISubordinateWrite
             &top_verilator_interface.m_axi_bid,
             top_verilator_interface.m_axi_bready,
             top_verilator_interface.m_axi_bvalid,
-            top_verilator_interface.m_axi_bresp) {
+            top_verilator_interface.m_axi_bresp),
+        nicif_(nicif) {
   }
 
  private:
+  struct SimbricksNicIf &nicif_;
+
   void do_write(const simbricks::AXIOperation &axi_op) final {
-    // TODO
+#if CORUNDUM_VERILATOR_DEBUG
+    sim_log::LogInfo(
+        "JpegDecoderMemWriter::doWrite() ts=%lu id=%lu addr=%lu len=%lu\n",
+        main_time, axi_op.id, axi_op.addr, axi_op.len);
+#endif
+
+    volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(nicif_, main_time);
+    if (not msg) {
+      sim_log::LogError(
+          "JpegDecoderMemWriter::doWrite() dma read alloc failed\n");
+      std::terminate();
+    }
+
+    volatile struct SimbricksProtoPcieD2HWrite *write = &msg->write;
+    unsigned int max_size =
+        SimbricksPcieIfH2DOutMsgLen(&nicif_.pcie) - sizeof(*write);
+    if (axi_op.len > max_size) {
+      sim_log::LogError(
+          "error: write data of length=%lu doesn't fit into a SimBricks "
+          "message\n",
+          axi_op.len);
+      std::terminate();
+    }
+
+    write->req_id = axi_op.id;
+    write->offset = axi_op.addr;
+    write->len = axi_op.len;
+    std::memcpy(const_cast<uint8_t *>(write->data), axi_op.buf.get(),
+                axi_op.len);
+    SimbricksPcieIfD2HOutSend(&nicif_.pcie, msg,
+                              SIMBRICKS_PROTO_PCIE_D2H_MSG_WRITE);
   }
 };
 
 // handles host to device register reads / writes
 class CorundumAXILManager : public simbricks::AXILManager<3, 4> {
  public:
-  explicit CorundumAXILManager(Vmqnic_core_axi &top_verilator_interface)
+  explicit CorundumAXILManager(struct SimbricksNicIf &nicif,
+                               Vmqnic_core_axi &top_verilator_interface)
       : AXILManager(reinterpret_cast<uint8_t *>(
                         &top_verilator_interface.s_axil_ctrl_araddr),
                     top_verilator_interface.s_axil_ctrl_arready,
@@ -148,16 +228,56 @@ class CorundumAXILManager : public simbricks::AXILManager<3, 4> {
                     top_verilator_interface.s_axil_ctrl_wstrb,
                     top_verilator_interface.s_axil_ctrl_bready,
                     top_verilator_interface.s_axil_ctrl_bvalid,
-                    top_verilator_interface.s_axil_ctrl_bresp) {
+                    top_verilator_interface.s_axil_ctrl_bresp),
+        nicif_(nicif) {
   }
 
  private:
+  struct SimbricksNicIf &nicif_;
+
   void read_done(simbricks::AXILOperationR &axi_op) final {
-    // TODO
+#if CORUNDUM_VERILATOR_DEBUG
+    sim_log::LogInfo(
+        "JpegDecAXILManager::read_done() ts=%lu  id=%lu  addr=%lu\n", main_time,
+        axi_op.req_id, axi_op.addr);
+#endif
+
+    volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(nicif_, main_time);
+    if (not msg) {
+      sim_log::LogError(
+          "JpegDecAXILManager::read_done() completion alloc failed\n");
+      std::terminate();
+    }
+
+    volatile struct SimbricksProtoPcieD2HReadcomp *readcomp = &msg->readcomp;
+    std::memcpy(const_cast<uint8_t *>(readcomp->data), &axi_op.data, 4);
+    readcomp->req_id = axi_op.req_id;
+    SimbricksPcieIfD2HOutSend(&nicif_.pcie, msg,
+                              SIMBRICKS_PROTO_PCIE_D2H_MSG_READCOMP);
   }
 
   void write_done(simbricks::AXILOperationW &axi_op) final {
-    // TODO
+#if CORUNDUM_VERILATOR_DEBUG
+    sim_log::LogInfo(
+        "JpegDecAXILManager::write_done() ts=%lu  id=%lu  addr=%lu\n",
+        main_time, axi_op.req_id, axi_op.addr);
+#endif
+
+    if (axi_op.posted) {
+      return;
+    }
+
+    volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(nicif_, main_time);
+    if (not msg) {
+      sim_log::LogError(
+          "JpegDecAXILManager::write_done() completion alloc failed\n");
+      std::terminate();
+    }
+
+    volatile struct SimbricksProtoPcieD2HWritecomp *writecomp = &msg->writecomp;
+    writecomp->req_id = axi_op.req_id;
+    SimbricksPcieIfD2HOutSend(&nicif_.pcie, msg,
+                              SIMBRICKS_PROTO_PCIE_D2H_MSG_WRITECOMP);
   }
 };
 
@@ -296,9 +416,9 @@ void n2d_recv(volatile struct SimbricksProtoNetMsgPacket &packet,
     return;
   }
 
-  // TODO: FIXME
-  const void *data = (const void *)packet.data;
-  axis_from_network.read(static_cast<const uint8_t *>(data), packet.len);
+  // NOTE: const_cast ing the member of the volatile struct to non-volatile is
+  // undefined behavior...
+  axis_from_network.read(const_cast<const uint8_t *>(packet.data), packet.len);
 
 #ifdef CORUNDUM_VERILATOR_DEBUG
   sim_log::LogInfo("%lu corundum verilator n2d_recv received packet\n", cur_ts);
@@ -334,19 +454,6 @@ void poll_n2d(struct SimbricksNicIf &nicif, uint64_t cur_ts,
 }
 
 /* **************************************************************************
- * signal handling
- * ************************************************************************** */
-
-static uint64_t main_time = 0;
-static volatile int exiting = 0;
-static void sigint_handler(int dummy) {
-  exiting = 1;
-}
-static void sigusr1_handler(int dummy) {
-  sim_log::LogError("main_time = %lu\n", main_time);
-}
-
-/* **************************************************************************
  * main adapter driver
  * ************************************************************************** */
 
@@ -354,6 +461,13 @@ int main(int argc, char *argv[]) {
   // declarations
   Vmqnic_core_axi top_verilator_interface;
   // VerilatedVcdC trace;
+
+  struct SimbricksBaseIfParams netParams;
+  struct SimbricksBaseIfParams pcieParams;
+  struct SimbricksNicIf nicif;
+  struct SimbricksProtoPcieDevIntro di;
+  uint64_t clock_period = 4 * 1000ULL;  // 4ns -> 250MHz
+
   AxiSFromNetworkT axis_from_network{
       top_verilator_interface.s_axis_rx_tvalid,
       top_verilator_interface.s_axis_rx_tready,
@@ -370,15 +484,9 @@ int main(int argc, char *argv[]) {
       top_verilator_interface.m_axis_tx_tlast,
       &top_verilator_interface.m_axis_tx_tuser};
 
-  CorundumAXISubordinateRead dma_read{top_verilator_interface};
-  CorundumAXISubordinateWrite dma_write{top_verilator_interface};
-  CorundumAXILManager mmio{top_verilator_interface};
-
-  struct SimbricksBaseIfParams netParams;
-  struct SimbricksBaseIfParams pcieParams;
-  struct SimbricksNicIf nicif;
-  struct SimbricksProtoPcieDevIntro di;
-  uint64_t clock_period = 4 * 1000ULL;  // 4ns -> 250MHz
+  CorundumAXISubordinateRead dma_read{nicif, top_verilator_interface};
+  CorundumAXISubordinateWrite dma_write{nicif, top_verilator_interface};
+  CorundumAXILManager mmio{nicif, top_verilator_interface};
 
   // argument parsing and initialization
   if (argc < 4 || argc > 10) {
