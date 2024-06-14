@@ -60,10 +60,9 @@ $(verilator_bin_corundum): $(verilator_src_corundum) $(corundum_simbricks_adapte
 $(corundum_simbricks_adapter_bin): $(verilator_bin_corundum)
 	cp $< $@
 
-CLEAN := $(corundum_simbricks_adapter_bin) $(verilator_dir_corundum) $(OBJS)
+$(d)ready: $(corundum_simbricks_adapter_bin)
+	touch $@
 
-ifeq ($(ENABLE_VERILATOR),y)
-ALL := $(corundum_simbricks_adapter_bin)
-endif
+CLEAN := $(corundum_simbricks_adapter_bin) $(verilator_dir_corundum) $(OBJS) $(d)ready
 
 include mk/subdir_post.mk
