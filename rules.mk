@@ -42,6 +42,7 @@ $(verilator_src_corundum): # $(vsrcs_corundum)
 	    -CFLAGS "-I$(abspath $(lib_dir)) -iquote $(abspath $(base_dir)) -O3 -g -Wall -Wno-maybe-uninitialized" \
 	    --Mdir $(verilator_dir_corundum) \
 		--top-module $(verilog_interface_name) \
+		--trace \
 	    -y $(dir_corundum)/fpga/common/rtl \
 		-y $(dir_corundum)/fpga/common/lib/axis/rtl \
 		-y $(dir_corundum)/fpga/common/lib/eth/rtl \
