@@ -39,8 +39,8 @@ extern "C" {
 }
 
 #define CORUNDUM_VERILATOR_DEBUG 1
-// #define CORUNDUM_VERILATOR_TRACE 1
-#define CORUNDUM_VERILATOR_TRACE_LEVEL 99
+#define CORUNDUM_VERILATOR_TRACE 1
+#define CORUNDUM_VERILATOR_TRACE_LEVEL 40
 
 /* **************************************************************************
  * signal handling
