@@ -64,6 +64,14 @@ $(corundum_simbricks_adapter_bin): $(verilator_bin_corundum)
 $(d)ready: $(corundum_simbricks_adapter_bin)
 	touch $@
 
+UTILS_DIR := $(dir_corundum)/utils
+
+$(d)/utils/all:
+	$(MAKE) -C $(UTILS_DIR) all
+
+$(d)utils/ready: $(d)/utils/all
+	touch $(dir_corundum)/utils/ready
+
 CLEAN := $(corundum_simbricks_adapter_bin) $(verilator_dir_corundum) $(OBJS) $(d)ready
 
 include mk/subdir_post.mk
