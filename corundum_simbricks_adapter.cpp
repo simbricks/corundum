@@ -25,6 +25,7 @@
 #include <signal.h>
 #include <verilated_vcd_c.h>
 
+#include <algorithm>
 #include <iostream>
 #include <memory>
 
@@ -67,6 +68,8 @@ void reset_corundum(Vmqnic_core_axi &top_verilator_interface) {
   top_verilator_interface.eval();
   top_verilator_interface.rst = 0;
   top_verilator_interface.clk = 0;
+  top_verilator_interface.tx_status = 1;
+  top_verilator_interface.rx_status = 1;
 }
 
 static volatile union SimbricksProtoPcieD2H *d2h_alloc(
@@ -108,7 +111,8 @@ class CorundumAXISubordinateRead
   void do_read(const simbricks::AXIOperation &axi_op) final {
 #if CORUNDUM_VERILATOR_DEBUG
     sim_log::LogInfo(
-        "CorundumAXISubordinateRead::doRead() ts=%lu id=%lu addr=%lu len=%lu\n",
+        "CorundumAXISubordinateRead::doRead() ts=%lu id=%lu addr=0x%lx "
+        "len=%lu\n",
         main_time, axi_op.id, axi_op.addr, axi_op.len);
 #endif
 
@@ -173,9 +177,12 @@ class CorundumAXISubordinateWrite
   void do_write(const simbricks::AXIOperation &axi_op) final {
 #if CORUNDUM_VERILATOR_DEBUG
     sim_log::LogInfo(
-        "CorundumAXISubordinateWrite::doWrite() ts=%lu id=%lu addr=%lu "
-        "len=%lu\n",
+        "CorundumAXISubordinateWrite::doWrite() ts=%lu id=%lu addr=0x%lx "
+        "len=%lu data=",
         main_time, axi_op.id, axi_op.addr, axi_op.len);
+    std::for_each_n(axi_op.buf.get(), axi_op.len,
+                    [](uint8_t &val) { fprintf(stdout, "%02X ", val); });
+    fputs("\n", stdout);
 #endif
 
     volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(nicif_, main_time);
@@ -242,8 +249,11 @@ class CorundumAXILManager : public simbricks::AXILManager<3, 4> {
   void read_done(simbricks::AXILOperationR &axi_op) final {
 #if CORUNDUM_VERILATOR_DEBUG
     sim_log::LogInfo(
-        "CorundumAXILManager::read_done() ts=%lu  id=%lu  addr=%lu\n",
+        "CorundumAXILManager::read_done() ts=%lu  id=%lu  addr=0x%lx data=",
         main_time, axi_op.req_id, axi_op.addr);
+    std::for_each_n((uint8_t *)(&axi_op.data), sizeof(axi_op.data),
+                    [](uint8_t &val) { fprintf(stdout, "%02X ", val); });
+    fputs("\n", stdout);
 #endif
 
     volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(nicif_, main_time);
@@ -263,8 +273,12 @@ class CorundumAXILManager : public simbricks::AXILManager<3, 4> {
   void write_done(simbricks::AXILOperationW &axi_op) final {
 #if CORUNDUM_VERILATOR_DEBUG
     sim_log::LogInfo(
-        "CorundumAXILManager::write_done() ts=%lu  id=%lu  addr=%lu\n",
-        main_time, axi_op.req_id, axi_op.addr);
+        "CorundumAXILManager::write_done() ts=%lu  id=%lu  addr=0x%lx "
+        "posted=%d data=",
+        main_time, axi_op.req_id, axi_op.addr, axi_op.posted);
+    std::for_each_n((uint8_t *)(&axi_op.data), sizeof(axi_op.data),
+                    [](uint8_t &val) { fprintf(stdout, "%02X ", val); });
+    fputs("\n", stdout);
 #endif
 
     if (axi_op.posted) {
@@ -296,7 +310,7 @@ using AxiSToNetworkT = simbricks::AXISSubordinate<8, 2048>;
 void h2d_read(volatile struct SimbricksProtoPcieH2DRead &read, uint64_t cur_ts,
               CorundumAXILManager &mmio) {
 #if CORUNDUM_VERILATOR_DEBUG
-  sim_log::LogInfo("h2d_read ts=%lu bar=%d offset=%lu len=%lu\n", cur_ts,
+  sim_log::LogInfo("h2d_read ts=%lu bar=%d offset=0x%lx len=%lu\n", cur_ts,
                    static_cast<int>(read.bar),
                    static_cast<uint64_t>(read.offset),
                    static_cast<uint64_t>(read.len));
@@ -314,10 +328,13 @@ void h2d_write(struct SimbricksNicIf &nicif,
                volatile struct SimbricksProtoPcieH2DWrite &write,
                uint64_t cur_ts, bool posted, CorundumAXILManager &mmio) {
 #if CORUNDUM_VERILATOR_DEBUG
-  sim_log::LogInfo("h2d_write ts=%lu bar=%d offset=%lu len=%lu posted=%d\n",
-                   cur_ts, static_cast<int>(write.bar),
-                   static_cast<uint64_t>(write.offset),
-                   static_cast<uint64_t>(write.len), posted);
+  sim_log::LogInfo(
+      "h2d_write ts=%lu bar=%d offset=0x%lx len=%lu posted=%d data=", cur_ts,
+      static_cast<int>(write.bar), static_cast<uint64_t>(write.offset),
+      static_cast<uint64_t>(write.len), posted);
+  std::for_each_n(const_cast<uint8_t *>(write.data), write.len,
+                  [](uint8_t &val) { fprintf(stdout, "%02X ", val); });
+  fputs("\n", stdout);
 #endif
 
   if (write.bar != 0) {
@@ -325,13 +342,13 @@ void h2d_write(struct SimbricksNicIf &nicif,
     std::terminate();
   }
 
-  if (write.len > 8) {
+  if (write.len != 4) {
     sim_log::LogError(
-        "h2d_write() JPEG decoder register write needs to be 32 bits\n");
+        "h2d_write() Corundum register write only supported up to 8 bytes\n");
     std::terminate();
   }
 
-  uint64_t data;
+  uint32_t data = 0;
   std::memcpy(&data, const_cast<uint8_t *>(write.data), write.len);
   mmio.issue_write(write.req_id, write.offset, data, posted);
 
@@ -523,7 +540,7 @@ int main(int argc, char *argv[]) {
       reinterpret_cast<uint8_t *>(&top_verilator_interface->m_axis_tx_tdata),
       &top_verilator_interface->m_axis_tx_tkeep,
       top_verilator_interface->m_axis_tx_tlast,
-      &top_verilator_interface->m_axis_tx_tuser};
+      reinterpret_cast<uint8_t *>(&top_verilator_interface->m_axis_tx_tuser)};
 
   CorundumAXISubordinateRead dma_read{nicif, *top_verilator_interface};
   CorundumAXISubordinateWrite dma_write{nicif, *top_verilator_interface};
@@ -601,7 +618,6 @@ int main(int argc, char *argv[]) {
 
   // main simulation loop
   while (not exiting) {
-
     while (SimbricksPcieIfD2HOutSync(&nicif.pcie, main_time) < 0 or
            SimbricksNetIfOutSync(&nicif.net, main_time) < 0) {
       sim_log::LogWarn(
@@ -620,6 +636,8 @@ int main(int argc, char *argv[]) {
 
     /* falling edge */
     top_verilator_interface->clk = 0;
+    top_verilator_interface->tx_clk = 0;
+    top_verilator_interface->rx_clk = 0;
     top_verilator_interface->eval();
 #ifdef CORUNDUM_VERILATOR_TRACE
     trace->dump(main_time);
@@ -628,6 +646,8 @@ int main(int argc, char *argv[]) {
 
     // evaluate on rising edge
     top_verilator_interface->clk = 1;
+    top_verilator_interface->tx_clk = 1;
+    top_verilator_interface->rx_clk = 1;
     dma_read.step(main_time);
     dma_write.step(main_time);
     mmio.step(main_time);
