@@ -598,6 +598,7 @@ int main(int argc, char *argv[]) {
   bool sync_pci = SimbricksBaseIfSyncEnabled(&nicif.pcie.base);
   bool sync_eth = SimbricksBaseIfSyncEnabled(&nicif.net.base);
 #ifdef CORUNDUM_VERILATOR_DEBUG
+  sim_log::LogRegistry().SetFlush(true);
   sim_log::LogInfo("sync_pci=%d sync_eth=%d\n", sync_pci, sync_eth);
 #endif
 
