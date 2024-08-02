@@ -512,6 +512,68 @@ void packet_d2n(struct SimbricksNicIf &nicif, uint64_t cur_ts,
 }
 
 /* **************************************************************************
+ * interrupt handling
+ * ************************************************************************** */
+
+class MsiInterruptHandler {
+  const uint32_t &msi_irq_;
+  struct SimbricksNicIf &nicif_;
+
+  void msi_issue(uint16_t intr_vec, uint64_t main_time) const {
+#ifdef CORUNDUM_VERILATOR_DEBUG
+    sim_log::LogInfo(
+        "MsiInterruptHandler::msi_issue: MSI interrupt ts=%lu, vec=%lu\n",
+        main_time, (int) intr_vec);
+#endif
+
+    volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(nicif_, main_time);
+    if (not msg) {
+      sim_log::LogError(
+          "MsiInterruptHandler::msi_issue: unable to allocate msg");
+      std::terminate();
+    }
+
+    volatile struct SimbricksProtoPcieD2HInterrupt *intr = &msg->interrupt;
+    intr->vector = intr_vec;
+    intr->inttype = SIMBRICKS_PROTO_PCIE_INT_MSI;
+
+    SimbricksPcieIfD2HOutSend(&nicif_.pcie, msg,
+                              SIMBRICKS_PROTO_PCIE_D2H_MSG_INTERRUPT);
+  }
+
+  uint8_t get_intr_bit_pos_i(uint32_t i) const {
+    uint8_t res = (1ULL << i) & msi_irq_;
+    return res;
+  }
+
+ public:
+  MsiInterruptHandler(struct SimbricksNicIf &nicif, const uint32_t &msi_irq)
+      : msi_irq_(msi_irq), nicif_(nicif) {
+  }
+
+  void step(uint64_t main_time) {
+    if (not msi_irq_) {
+      return;
+    }
+
+#ifdef CORUNDUM_VERILATOR_DEBUG
+    sim_log::LogInfo(
+        "MsiInterruptHandler::step: MSI interrupt ts=%lu, msi_irq=%lu",
+        main_time, (int)msi_irq_);
+#endif
+
+    for (size_t i = 0; i < 32; i++) {
+      uint8_t bit = get_intr_bit_pos_i(i);
+      if (not static_cast<bool>(bit)) {
+        continue;
+      }
+
+      msi_issue(bit, main_time);
+    }
+  }
+};
+
+/* **************************************************************************
  * main adapter driver
  * ************************************************************************** */
 
@@ -545,6 +607,8 @@ int main(int argc, char *argv[]) {
   CorundumAXISubordinateRead dma_read{nicif, *top_verilator_interface};
   CorundumAXISubordinateWrite dma_write{nicif, *top_verilator_interface};
   CorundumAXILManager mmio{nicif, *top_verilator_interface};
+
+  MsiInterruptHandler msi_intr_handler{nicif, top_verilator_interface->irq};
 
   // argument parsing and initialization
   if (argc < 4 || argc > 10) {
@@ -655,6 +719,7 @@ int main(int argc, char *argv[]) {
     axis_from_network.step();
     axis_to_network.step();
     packet_d2n(nicif, main_time, axis_to_network);
+    msi_intr_handler.step(main_time);
     top_verilator_interface->eval();
 
     //  finalize updates
