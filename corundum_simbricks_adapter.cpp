@@ -40,7 +40,7 @@ extern "C" {
 }
 
 #define CORUNDUM_VERILATOR_DEBUG 1
-#define CORUNDUM_VERILATOR_TRACE 1
+// #define CORUNDUM_VERILATOR_TRACE 1
 #define CORUNDUM_VERILATOR_TRACE_LEVEL 40
 
 /* **************************************************************************
@@ -61,15 +61,79 @@ static void sigusr1_handler(int dummy) {
  * ************************************************************************** */
 
 void reset_corundum(Vmqnic_core_axi &top_verilator_interface) {
-  top_verilator_interface.rst = 1;
-  top_verilator_interface.clk = 0;
-  top_verilator_interface.eval();
-  top_verilator_interface.clk = 1;
-  top_verilator_interface.eval();
+  top_verilator_interface->rx_rst = 0;
+  top_verilator_interface.s_axis_rx_tvalid = 0;
+  top_verilator_interface.s_axis_rx_tready = 0;
+  top_verilator_interface.s_axis_rx_tdata = 0;
+  top_verilator_interface.s_axis_rx_tkeep = 0;
+  top_verilator_interface.s_axis_rx_tlast = 0;
+  // top_verilator_interface.s_axis_rx_tuser = 0;
+  
+  top_verilator_interface->tx_rst = 0;
+  top_verilator_interface.m_axis_tx_tvalid = 0;
+  top_verilator_interface.m_axis_tx_tready = 0;
+  top_verilator_interface.m_axis_tx_tdata = 0;
+  top_verilator_interface.m_axis_tx_tkeep = 0;
+  top_verilator_interface.m_axis_tx_tlast = 0;
+  top_verilator_interface.m_axis_tx_tuser = 0;
+
+  top_verilator_interface.m_axi_araddr = 0;
+  top_verilator_interface.m_axi_arid = 0;
+  top_verilator_interface.m_axi_arready = 0;
+  top_verilator_interface.m_axi_arvalid = 0;
+  top_verilator_interface.m_axi_arlen = 0;
+  top_verilator_interface.m_axi_arsize = 0;
+  top_verilator_interface.m_axi_arburst = 0;
+  // top_verilator_interface.m_axi_rdata = 0;
+  top_verilator_interface.m_axi_rid = 0;
+  top_verilator_interface.m_axi_rready = 0;
+  top_verilator_interface.m_axi_rvalid = 0;
+  top_verilator_interface.m_axi_rlast = 0;
+
+  top_verilator_interface.m_axi_awaddr = 0;
+  top_verilator_interface.m_axi_awid = 0;
+  top_verilator_interface.m_axi_awready = 0;
+  top_verilator_interface.m_axi_awvalid = 0;
+  top_verilator_interface.m_axi_awlen = 0;
+  top_verilator_interface.m_axi_awsize = 0;
+  top_verilator_interface.m_axi_awburst = 0;
+  // top_verilator_interface.m_axi_wdata = 0;
+  top_verilator_interface.m_axi_wready = 0;
+  top_verilator_interface.m_axi_wvalid = 0;
+  top_verilator_interface.m_axi_wstrb = 0;
+  top_verilator_interface.m_axi_wlast = 0;
+  top_verilator_interface.m_axi_bid = 0;
+  top_verilator_interface.m_axi_bready = 0;
+  top_verilator_interface.m_axi_bvalid = 0;
+  top_verilator_interface.m_axi_bresp = 0;
+
+  top_verilator_interface.s_axil_ctrl_araddr = 0;
+  top_verilator_interface.s_axil_ctrl_arready = 0;
+  top_verilator_interface.s_axil_ctrl_arvalid = 0;
+  top_verilator_interface.s_axil_ctrl_rdata = 0;
+  top_verilator_interface.s_axil_ctrl_rready = 0;
+  top_verilator_interface.s_axil_ctrl_rvalid = 0;
+  top_verilator_interface.s_axil_ctrl_rresp = 0;
+  top_verilator_interface.s_axil_ctrl_awaddr = 0;
+  top_verilator_interface.s_axil_ctrl_awready = 0;
+  top_verilator_interface.s_axil_ctrl_awvalid = 0;
+  top_verilator_interface.s_axil_ctrl_wdata = 0;
+  top_verilator_interface.s_axil_ctrl_wready = 0;
+  top_verilator_interface.s_axil_ctrl_wvalid = 0;
+  top_verilator_interface.s_axil_ctrl_wstrb = 0;
+  top_verilator_interface.s_axil_ctrl_bready = 0;
+  top_verilator_interface.s_axil_ctrl_bvalid = 0;
+  top_verilator_interface.s_axil_ctrl_bresp = 0;
+
   top_verilator_interface.rst = 0;
   top_verilator_interface.clk = 0;
-  top_verilator_interface.tx_status = 1;
-  top_verilator_interface.rx_status = 1;
+  top_verilator_interface.tx_clk = 0;
+  top_verilator_interface.rx_clk = 0;
+  top_verilator_interface.ptp_clk = 0;
+  top_verilator_interface.tx_ptp_clk = 0;
+  top_verilator_interface.rx_ptp_clk = 0;
+  top_verilator_interface.tx_status = 0;
+  top_verilator_interface.rx_status = 0;
 }
 
 static volatile union SimbricksProtoPcieD2H *d2h_alloc(
@@ -109,7 +173,7 @@ class CorundumAXISubordinateRead
   struct SimbricksNicIf &nicif_;
 
   void do_read(const simbricks::AXIOperation &axi_op) final {
-#if CORUNDUM_VERILATOR_DEBUG
+#ifdef CORUNDUM_VERILATOR_DEBUG
     sim_log::LogInfo(
         "CorundumAXISubordinateRead::doRead() ts=%lu id=%lu addr=0x%lx "
         "len=%lu\n",
@@ -175,7 +239,7 @@ class CorundumAXISubordinateWrite
   struct SimbricksNicIf &nicif_;
 
   void do_write(const simbricks::AXIOperation &axi_op) final {
-#if CORUNDUM_VERILATOR_DEBUG
+#ifdef CORUNDUM_VERILATOR_DEBUG
     sim_log::LogInfo(
         "CorundumAXISubordinateWrite::doWrite() ts=%lu id=%lu addr=0x%lx "
         "len=%lu data=",
@@ -247,7 +311,7 @@ class CorundumAXILManager : public simbricks::AXILManager<3, 4> {
   struct SimbricksNicIf &nicif_;
 
   void read_done(simbricks::AXILOperationR &axi_op) final {
-#if CORUNDUM_VERILATOR_DEBUG
+#ifdef CORUNDUM_VERILATOR_DEBUG
     sim_log::LogInfo(
         "CorundumAXILManager::read_done() ts=%lu  id=%lu  addr=0x%lx data=",
         main_time, axi_op.req_id, axi_op.addr);
@@ -271,7 +335,7 @@ class CorundumAXILManager : public simbricks::AXILManager<3, 4> {
   }
 
   void write_done(simbricks::AXILOperationW &axi_op) final {
-#if CORUNDUM_VERILATOR_DEBUG
+#ifdef CORUNDUM_VERILATOR_DEBUG
     sim_log::LogInfo(
         "CorundumAXILManager::write_done() ts=%lu  id=%lu  addr=0x%lx "
         "posted=%d data=",
@@ -309,7 +373,7 @@ using AxiSToNetworkT = simbricks::AXISSubordinate<8, 2048>;
 
 void h2d_read(volatile struct SimbricksProtoPcieH2DRead &read, uint64_t cur_ts,
               CorundumAXILManager &mmio) {
-#if CORUNDUM_VERILATOR_DEBUG
+#ifdef CORUNDUM_VERILATOR_DEBUG
   sim_log::LogInfo("h2d_read ts=%lu bar=%d offset=0x%lx len=%lu\n", cur_ts,
                    static_cast<int>(read.bar),
                    static_cast<uint64_t>(read.offset),
@@ -327,7 +391,7 @@ void h2d_read(volatile struct SimbricksProtoPcieH2DRead &read, uint64_t cur_ts,
 void h2d_write(struct SimbricksNicIf &nicif,
                volatile struct SimbricksProtoPcieH2DWrite &write,
                uint64_t cur_ts, bool posted, CorundumAXILManager &mmio) {
-#if CORUNDUM_VERILATOR_DEBUG
+#ifdef CORUNDUM_VERILATOR_DEBUG
   sim_log::LogInfo(
       "h2d_write ts=%lu bar=%d offset=0x%lx len=%lu posted=%d data=", cur_ts,
       static_cast<int>(write.bar), static_cast<uint64_t>(write.offset),
@@ -442,7 +506,11 @@ void n2d_recv(volatile struct SimbricksProtoNetMsgPacket &packet,
   axis_from_network.read(const_cast<const uint8_t *>(packet.data), packet.len);
 
 #ifdef CORUNDUM_VERILATOR_DEBUG
-  sim_log::LogInfo("%lu corundum verilator n2d_recv received packet\n", cur_ts);
+  sim_log::LogInfo(
+      "%lu corundum verilator n2d_recv received packet: packet data=", cur_ts);
+  std::for_each_n(const_cast<uint8_t *>(packet.data), packet.len,
+                  [](uint8_t &val) { fprintf(stdout, "%02X ", val); });
+  fputs("\n", stdout);
 #endif
 }
 
@@ -502,13 +570,16 @@ void packet_d2n(struct SimbricksNicIf &nicif, uint64_t cur_ts,
   }
   packet->len = static_cast<uint16_t>(packet_len);
 
-  SimbricksNetIfOutSend(&nicif.net, msg, SIMBRICKS_PROTO_NET_MSG_PACKET);
-
 #ifdef CORUNDUM_VERILATOR_DEBUG
   sim_log::LogInfo(
-      "%lu corundum verilator packet_d2n transmitted packet: packet len=%lu\n",
+      "%lu corundum verilator packet_d2n transmitted packet: packet len=%lu, "
+      "packet data=",
       cur_ts, packet_len);
+  std::for_each_n(const_cast<uint8_t *>(packet->data), packet->len,
+                  [](uint8_t &val) { fprintf(stdout, "%02X ", val); });
+  fputs("\n", stdout);
 #endif
+  SimbricksNetIfOutSend(&nicif.net, msg, SIMBRICKS_PROTO_NET_MSG_PACKET);
 }
 
 /* **************************************************************************
@@ -519,17 +590,17 @@ class MsiInterruptHandler {
   const uint32_t &msi_irq_;
   struct SimbricksNicIf &nicif_;
 
-  void msi_issue(uint16_t intr_vec, uint64_t main_time) const {
+  void msi_issue(uint32_t intr_vec, uint64_t main_time) const {
 #ifdef CORUNDUM_VERILATOR_DEBUG
     sim_log::LogInfo(
         "MsiInterruptHandler::msi_issue: MSI interrupt ts=%lu, vec=%lu\n",
-        main_time, (int) intr_vec);
+        main_time, intr_vec);
 #endif
 
     volatile union SimbricksProtoPcieD2H *msg = d2h_alloc(nicif_, main_time);
     if (not msg) {
       sim_log::LogError(
-          "MsiInterruptHandler::msi_issue: unable to allocate msg");
+          "MsiInterruptHandler::msi_issue: unable to allocate msg\n");
       std::terminate();
     }
 
@@ -541,8 +612,8 @@ class MsiInterruptHandler {
                               SIMBRICKS_PROTO_PCIE_D2H_MSG_INTERRUPT);
   }
 
-  uint8_t get_intr_bit_pos_i(uint32_t i) const {
-    uint8_t res = (1ULL << i) & msi_irq_;
+  uint32_t get_intr_bit_pos_i(uint32_t i) const {
+    uint32_t res = (1ULL << i) & msi_irq_;
     return res;
   }
 
@@ -558,17 +629,17 @@ class MsiInterruptHandler {
 
 #ifdef CORUNDUM_VERILATOR_DEBUG
     sim_log::LogInfo(
-        "MsiInterruptHandler::step: MSI interrupt ts=%lu, msi_irq=%lu",
-        main_time, (int)msi_irq_);
+        "MsiInterruptHandler::step: MSI interrupt ts=%lu, msi_irq=%lu\n",
+        main_time, msi_irq_);
 #endif
 
-    for (size_t i = 0; i < 32; i++) {
-      uint8_t bit = get_intr_bit_pos_i(i);
+    for (uint32_t i = 0; i < 32; i++) {
+      uint32_t bit = get_intr_bit_pos_i(i);
       if (not static_cast<bool>(bit)) {
         continue;
       }
 
-      msi_issue(bit, main_time);
+      msi_issue(i, main_time);
     }
   }
 };
@@ -618,6 +689,25 @@ int main(int argc, char *argv[]) {
         "[ETH-LATENCY] [CLOCK-FREQ-MHZ]\n");
     return EXIT_FAILURE;
   }
+
+  if (argc >= 6) {
+    main_time = strtoull(argv[5], NULL, 0);
+  }
+  if (argc >= 7) {
+    uint64_t sync_interval = strtoull(argv[6], NULL, 0) * 1000ULL;
+    netParams.sync_interval = sync_interval;
+    pcieParams.sync_interval = sync_interval;
+  }
+  if (argc >= 8) {
+    pcieParams.link_latency = strtoull(argv[7], NULL, 0) * 1000ULL;
+  }
+  if (argc >= 9) {
+    netParams.link_latency = strtoull(argv[8], NULL, 0) * 1000ULL;
+  }
+  if (argc >= 10) {
+    clock_period = 1000000ULL / strtoull(argv[9], NULL, 0);
+  }
+
   SimbricksNetIfDefaultParams(&netParams);
   SimbricksPcieIfDefaultParams(&pcieParams);
 
@@ -641,24 +731,6 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  if (argc >= 6) {
-    main_time = strtoull(argv[5], NULL, 0);
-  }
-  if (argc >= 7) {
-    uint64_t sync_interval = strtoull(argv[6], NULL, 0) * 1000ULL;
-    netParams.sync_interval = sync_interval;
-    pcieParams.sync_interval = sync_interval;
-  }
-  if (argc >= 8) {
-    pcieParams.link_latency = strtoull(argv[7], NULL, 0) * 1000ULL;
-  }
-  if (argc >= 9) {
-    netParams.link_latency = strtoull(argv[8], NULL, 0) * 1000ULL;
-  }
-  if (argc >= 10) {
-    clock_period = 1000000ULL / strtoull(argv[9], NULL, 0);
-  }
-
   bool sync_pci = SimbricksBaseIfSyncEnabled(&nicif.pcie.base);
   bool sync_eth = SimbricksBaseIfSyncEnabled(&nicif.net.base);
 #ifdef CORUNDUM_VERILATOR_DEBUG
@@ -676,6 +748,19 @@ int main(int argc, char *argv[]) {
 #endif
 
   reset_corundum(*top_verilator_interface);
+  top_verilator_interface->rst = 1;
+  top_verilator_interface->tx_rst = 1;
+  top_verilator_interface->rx_rst = 1;
+  top_verilator_interface->eval();
+
+  /* raising edge */
+  top_verilator_interface->clk = 1;
+  top_verilator_interface->eval();
+  top_verilator_interface->rst = 0;
+  top_verilator_interface->tx_rst = 0;
+  top_verilator_interface->rx_rst = 0;
+  top_verilator_interface->tx_status = 1;
+  top_verilator_interface->rx_status = 1;
 
 #ifdef CORUNDUM_VERILATOR_DEBUG
   sim_log::LogInfo("corundum start main simulation loop\n");
@@ -683,8 +768,7 @@ int main(int argc, char *argv[]) {
 
   // main simulation loop
   while (not exiting) {
-    while (SimbricksPcieIfD2HOutSync(&nicif.pcie, main_time) < 0 or
-           SimbricksNetIfOutSync(&nicif.net, main_time) < 0) {
+    while (SimbricksNicIfSync(&nicif, main_time) < 0) {
       sim_log::LogWarn(
           "SimbricksPcieIfD2HOutSync or SimbricksNetIfOutSync failed (t=%lu)\n",
           main_time);
@@ -703,6 +787,9 @@ int main(int argc, char *argv[]) {
     top_verilator_interface->clk = 0;
     top_verilator_interface->tx_clk = 0;
     top_verilator_interface->rx_clk = 0;
+    // top_verilator_interface->ptp_clk = 0;
+    // top_verilator_interface->tx_ptp_clk = 0;
+    // top_verilator_interface->rx_ptp_clk = 0;
     top_verilator_interface->eval();
 #ifdef CORUNDUM_VERILATOR_TRACE
     trace->dump(main_time);
@@ -710,9 +797,14 @@ int main(int argc, char *argv[]) {
     main_time += clock_period / 2;
 
     // evaluate on rising edge
+    if (top_verilator_interface->tx_status == 0)
+      sim_log::LogInfo("corundum-verilator-nic tx_status %lu\n", top_verilator_interface->tx_status);
     top_verilator_interface->clk = 1;
     top_verilator_interface->tx_clk = 1;
     top_verilator_interface->rx_clk = 1;
+    // top_verilator_interface->ptp_clk = 1;
+    // top_verilator_interface->tx_ptp_clk = 1;
+    // top_verilator_interface->rx_ptp_clk = 1;
     dma_read.step(main_time);
     dma_write.step(main_time);
     mmio.step(main_time);
