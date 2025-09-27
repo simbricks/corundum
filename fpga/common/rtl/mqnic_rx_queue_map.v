@@ -256,7 +256,10 @@ always @(posedge clk) begin
 
     indir_tbl_index_reg[INDIR_TBL_ADDR_WIDTH-1:0] <= (req_dest & app_mask_reg[req_id]) + (req_hash & hash_mask_reg[req_id]);
     if (PORTS > 1) begin
-        indir_tbl_index_reg[INDIR_TBL_ADDR_WIDTH +: CL_PORTS] <= req_id;
+        for (int i = 0; i < CL_PORTS; i++) begin
+            indir_tbl_index_reg[INDIR_TBL_ADDR_WIDTH + i] <= req_id[i];
+        end
+        // indir_tbl_index_reg[INDIR_TBL_ADDR_WIDTH +: CL_PORTS] <= req_id;
     end
     req_dest_d1_reg <= req_dest;
     req_dest_d1_reg[DEST_WIDTH-1] <= req_dest[DEST_WIDTH-1] & app_direct_en_reg[req_id];
